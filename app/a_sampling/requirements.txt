@@ -1,0 +1,10 @@
+pyopengl
+pyopengl-accelerate
+pillow
+numpy
+matplotlib
+pygame
+numba
+setuptools_scm
+scikit-build
+opencv-python
