@@ -152,7 +152,7 @@ kubeadm join 172.23.63.40:6443 --token kjnfer.6i5msg83zhnr4zyy \ --discovery-tok
 
 ●**安装docker**(同一)
 
-●**安装 k8s主要组件**(同一)
+●**安装 k8s主要组件**(同一，但仅安装kubectl)
 
 ● 放开kubeedge所需端口：1883、1884、10000、10001、10002、10003、10004、10550 （云端和边缘节点都要放开）
 
@@ -210,7 +210,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/down
 
 ●**安装docker**(同一)
 
-●**安装 k8s主要组件**(同一)
+●**安装 k8s主要组件**(同一，但仅安装kubectl)
 
 ●安装keadm(同二.1)
 
