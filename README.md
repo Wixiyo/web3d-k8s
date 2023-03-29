@@ -19,7 +19,7 @@ a web3d cloud-edge architecture base on k8s
 
 (在master节点上操作)
 
-**准备环境**
+<a id="pre_env">**准备环境**</a> 
 
 ```shell
 # 禁用交换分区
@@ -34,15 +34,20 @@ modprobe br_netfilter
 lsmod | grep br_netfilter
 
 # 如果报错找不到包，需要先更新 apt-get update -y
+
+# 关闭防火墙
+sudo ufw disable
 ```
 
-**安装docker**
+<a id="install_docker">**安装docker**</a> 
 
 \# 参考资料
 
 https://www.runoob.com/docker/ubuntu-docker-install.html
 
 ```shell
+sudo apt-get install docker-ce=5:20.10.22~3-0~ubuntu-focal docker-ce-cli=5:20.10.22~3-0~ubuntu-focal containerd.io
+
 # 设置开机启动并启动docker 
 sudo systemctl start docker
 sudo systemctl enable docker
@@ -62,7 +67,8 @@ vim /etc/docker/daemon.json
 }
 
 # 重启docker
-systemctl restart docker
+sudo systemctl daemon-reload
+sudo systemctl restart docker
 ```
 
 **安装 k8s主要组件**
@@ -114,7 +120,7 @@ sudo apt-get install -y kubectl=1.22.0-00 kubeadm=1.22.0-00 kubelet=1.22.0-00
 sudo apt-mark hold kubelet kubeadm kubectl
 ```
 
-**初始化集群**
+<a id="init_k8s">**初始化集群**</a>
 
 ```shell
 kubeadm init --image-repository registry.aliyuncs.com/google_containers --kubernetes-version=v1.22.0 --pod-network-cidr=10.244.0.0/16
@@ -130,7 +136,11 @@ echo "export KUBECONFIG=/etc/kubernetes/admin.conf" >> /etc/profile
 
 To start using your cluster, you need to run the following as a regular user:
 
-mkdir -p $HOME/.kube sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config sudo chown $(id -u):$(id -g) $HOME/.kube/config
+mkdir -p $HOME/.kube 
+
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config 
+
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 Alternatively, if you are the root user, you can run:
 
@@ -148,15 +158,13 @@ kubeadm join 172.23.63.40:6443 --token kjnfer.6i5msg83zhnr4zyy \ --discovery-tok
 
 (在cloudcore节点操作)
 
-●**准备环境**(同一)
+●[**准备环境**](#pre_env)(同一)
 
-●**安装docker**(同一)
-
-●**安装 k8s主要组件**(同一，但仅安装kubectl)
+●[**安装docker**](#install_docker)(同一，但不需要修改docker的cgroupdriver)
 
 ● 放开kubeedge所需端口：1883、1884、10000、10001、10002、10003、10004、10550 （云端和边缘节点都要放开）
 
-1.安装keadm：
+<a id="init_keadm">1.**安装keadm**：</a>
 
 ```shell
 # 下载(如果无法连接到github下载，先下载到别的机器再上传)
@@ -174,7 +182,7 @@ mv keadm-v1.12.1-linux-amd64/keadm/keadm /usr/local/bin/
 
 ```shell
 # 执行init操作,其中[master-node-ip]改为k8s的master节点的公网IP
-keadm init keadm init --advertise-address=[master-node-ip] --set iptablesManager.mode="external" --profile version=v1.12.1
+keadm init --advertise-address=$cloudip --set iptablesManager.mode="external" --profile version=v1.12.1
 ```
 
 **问题：**如果将kubeedge的cloudcore部署到k8s master节点上，要先将master去污（untaint）,因为cloudcore是以pod运行的，而master节点默认是不允许调度pod上去的
@@ -183,12 +191,17 @@ keadm init keadm init --advertise-address=[master-node-ip] --set iptablesManager
 
 将master节点标记为可调度
 
+```shell
 kubectl taint nodes --all node-role.kubernetes.io/master-
+```
 
 3.添加节点亲和性设置（阻止kube-proxy等k8s核心pod调度到边缘节点）
 
 ```shell
-kubectl get daemonset -n kube-system | grep -v NAME | awk '{print $1}' | xargs -n 1 kubectl patch daemonset -n kube-system --type='json' -p='[{"op": "replace", "path":"/spec/template/spec/affinity","value":{"nodeAffinity":{"requireDuringSchedulingIgnoreDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role.kubenetes.io/edge","operator":"DoesNotExist"}]}]}}}}]'
+# 查看节点亲和性
+kubectl edit daemonset -n kube-system kube-proxy
+
+kubectl get daemonset -n kube-system | grep -v NAME | awk '{print $1}' | xargs -n 1 kubectl patch daemonset -n kube-system --type='json' -p='[{"op": "replace", "path":"/spec/template/spec/affinity", "value":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"node-role.kubenetes.io/edge","operator":"DoesNotExist"}]}]}}}}]'
 ```
 
 4.启用数据收集组建metrics-server（可选）
@@ -196,6 +209,9 @@ kubectl get daemonset -n kube-system | grep -v NAME | awk '{print $1}' | xargs -
 ```shell
 # 安装metrics-server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.8.3/components.yaml
+
+# 关闭校验tls证书
+kubectl patch deploy metrics-server -n kube-system --type='json' -p='[{"op": "add", "path":"/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
 ```
 
 如遇到metrics-server安装问题，参考：https://blog.csdn.net/icanflyingg/article/details/126370832
@@ -206,13 +222,11 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/down
 
 （在edgecore节点操作）
 
-●**准备环境**(同一)
+●[**准备环境**](#pre_env)(同一)
 
-●**安装docker**(同一)
+●[**安装docker**](#install_docker)(同一，但不需要修改docker的cgroupdriver)
 
-●**安装 k8s主要组件**(同一，但仅安装kubectl)
-
-●安装keadm(同二.1)
+●<a href="#init_keadm">**安装keadm**</a>(同二.1)
 
 1.先在cloudcore机器上获取token（在cloudcore节点操作）
 
@@ -223,8 +237,10 @@ keadm gettoken
 2.到边缘机器上安装edgecore（在edgecore节点操作）
 
 ```shell
-keadm join --cloudcore-ipport=[cloudcore-ip]:10000 --token=[token] --kubeedge-version=1.12.1
-# [cloudcore-ip] 是cloudcore 节点的ip地址，[token]是在上一步获取到的token
+token=624e4b088162a99938d726c492882897758cf0f8631a47ca8d7da507a67b8ea4.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2ODAwODE5ODJ9.eSaVmRHlWuwVCa0iIQbgp-w0kMBQq83blHOYhxGb_rk
+cloudcore=43.249.8.7
+keadm join --cloudcore-ipport=$cloudcore:10000 --token=$token --kubeedge-version=1.12.1
+# $cloudcore 是cloudcore 节点的ip地址，$token是在上一步获取到的token
 
 # 检查edgecore安装是否成功 ->
 # 查看edgecore状态
@@ -232,16 +248,20 @@ service edgecore status
 
 # 查看edgecore安装日志 
 journalctl -u edgecore.service -f
+```
 
-# 启动edge-stream(可以在云端查看到边缘日志) ->
+3.启动edge-stream，使云端可以查看到边缘端pod的日志)（在edgecore节点操作）
+
+```shell
 # 修改边缘端机器上的文件
-vim /etc/kubeedge/config/edgecore.yaml #将edgeStream设为true
+vim /etc/kubeedge/config/edgecore.yaml
+# 将 edgeStream 设为true
 
 # 重启edgecore
 service edgecore restart
 ```
 
-3.验证集群可用(在cloudcore节点上操作)
+4.验证集群可用(在cloudcore节点上操作)
 
 ```shell
 # 准备一个depolyment的yaml文件：->
@@ -269,19 +289,23 @@ spec:
         - containerPort: 80
 
 # 部署depolyment：
-kubectl apply -f [nginx-deployment.yaml]
+kubectl apply -f nginx-deployment.yaml
 
 # 查看depolyment信息：
 kubectl get deployment
 
 # 卸载depolyment：
-kubectl delete deployment [deployment-name]
+kubectl delete deployment nginx-deployment
 
 # 再检查pod是否已删除：
 kubectl get pod
 ```
 
-**四，调试命令：** 
+**四，安装EdgeMesh：** 
+
+https://edgemesh.netlify.app/zh/guide/#%E5%89%8D%E7%BD%AE%E5%87%86%E5%A4%87
+
+**五，调试命令：** 
 
 ```shell
 # 日志命令->
